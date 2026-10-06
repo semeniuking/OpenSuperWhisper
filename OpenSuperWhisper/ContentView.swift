@@ -243,6 +243,12 @@ class ContentViewModel: ObservableObject {
                                 self.currentSearchQuery = ""
                             }
                             self.recordings.insert(newRecording, at: 0)
+
+                            // The main window has focus here, so there is nowhere to
+                            // auto-paste; honor only the copy-to-clipboard setting.
+                            if AppPreferences.shared.autoCopyToClipboard {
+                                ClipboardUtil.copyToClipboard(IndicatorViewModel.applyPostProcessing(text))
+                            }
                         }
 
                         print("Transcription result: \(text)")
