@@ -1,0 +1,63 @@
+name: Package App
+
+# Builds an optimized (Release), ad-hoc signed app and uploads it as a .dmg
+# artifact, so a build can be installed without Xcode. It is not notarized:
+# macOS asks for confirmation the first time it is opened.
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository (with submodules)
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        run: brew install cmake libomp rust
+      - name: Build native libraries
+        run: |
+          set -euo pipefail
+          cmake -G Xcode -B libwhisper/build -S libwhisper
+          mkdir -p build
+          CARGO_PROFILE_RELEASE_LTO=true \
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
+          CARGO_PROFILE_RELEASE_STRIP=symbols \
+          CARGO_PROFILE_RELEASE_PANIC=abort \
+          cargo build -p autocorrect-swift --release --target aarch64-apple-darwin --manifest-path=libautocorrect/Cargo.toml
+          cp ./libautocorrect/target/aarch64-apple-darwin/release/libautocorrect_swift.dylib ./build/libautocorrect_swift.dylib
+          install_name_tool -id "@rpath/libautocorrect_swift.dylib" ./build/libautocorrect_swift.dylib
+          cp /opt/homebrew/opt/libomp/lib/libomp.dylib ./build/libomp.dylib
+          install_name_tool -id "@rpath/libomp.dylib" ./build/libomp.dylib
+      - name: Build app (Release)
+        run: |
+          set -euo pipefail
+          xcodebuild -scheme OpenSuperWhisper -configuration Release -derivedDataPath build \
+            -destination 'platform=macOS,arch=arm64' -quiet \
+            -skipPackagePluginValidation -skipMacroValidation \
+            -clonedSourcePackagesDirPath SourcePackages \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
+            build
+      - name: Sign ad hoc and create DMG
+        run: |
+          set -euo pipefail
+          APP=build/Build/Products/Release/OpenSuperWhisper.app
+          codesign --force --deep --sign - --entitlements OpenSuperWhisper/OpenSuperWhisper.entitlements "$APP"
+          codesign --verify --deep --strict "$APP"
+          mkdir -p dmg
+          cp -R "$APP" dmg/
+          ln -s /Applications dmg/Applications
+          # hdiutil occasionally fails with "Resource busy" on CI runners.
+          for attempt in 1 2 3; do
+            hdiutil create -volname OpenSuperWhisper -srcfolder dmg -ov -format UDZO OpenSuperWhisper.dmg && break
+            [ "$attempt" = 3 ] && exit 1
+            sleep 10
+          done
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenSuperWhisper
+          path: OpenSuperWhisper.dmg
+          retention-days: 30

@@ -29,6 +29,14 @@ brew install opensuperwhisper
 
 Or from [GitHub releases page](https://github.com/Starmel/OpenSuperWhisper/releases).
 
+### Installing a build of this fork
+
+Every push builds an unsigned app on GitHub Actions (workflow **Package App**). Open the run, download the
+**OpenSuperWhisper** artifact, open the `.dmg` and drag the app to Applications. Because the build is not
+notarized, approve it once in System Settings → Privacy & Security → **Open Anyway**, or run
+`xattr -dr com.apple.quarantine /Applications/OpenSuperWhisper.app`. Each new build has to be granted
+Accessibility permission again.
+
 ## Requirements
 
 - macOS (Apple Silicon/ARM64)
