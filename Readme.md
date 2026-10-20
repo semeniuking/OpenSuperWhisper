@@ -17,6 +17,8 @@ OpenSuperWhisper is a macOS application that provides real-time audio transcript
 - 🎤 Microphone selection — switch between built-in, external, Bluetooth and iPhone (Apple Continuity) mics from the menu bar
 - 🌍 Support for multiple languages with auto-detection
 - 🇯🇵🇨🇳🇰🇷 Asian language autocorrect ([autocorrect](https://github.com/huacnlee/autocorrect))
+- 📖 Custom dictionary — teach it names and terms, and fix words it keeps mishearing
+- 🚀 Open at login
 
 ## Installation
 

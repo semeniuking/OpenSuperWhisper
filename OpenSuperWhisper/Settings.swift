@@ -3,6 +3,7 @@ import Carbon
 import Combine
 import Foundation
 import KeyboardShortcuts
+import ServiceManagement
 import SwiftUI
 import FluidAudio
 
@@ -197,6 +198,39 @@ class SettingsViewModel: ObservableObject {
         }
     }
 
+    @Published var dictionaryEntries: [DictionaryEntry] {
+        didSet {
+            CustomDictionary.save(dictionaryEntries)
+        }
+    }
+
+    // macOS owns the login item state (the user can also change it in System
+    // Settings), so it is read back from SMAppService instead of stored.
+    @Published private(set) var launchAtLoginStatus = SMAppService.mainApp.status
+    @Published private(set) var launchAtLoginError: String?
+
+    var launchAtLogin: Bool {
+        launchAtLoginStatus == .enabled || launchAtLoginStatus == .requiresApproval
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            launchAtLoginError = nil
+        } catch {
+            launchAtLoginError = error.localizedDescription
+        }
+        refreshLaunchAtLogin()
+    }
+
+    func refreshLaunchAtLogin() {
+        launchAtLoginStatus = SMAppService.mainApp.status
+    }
+
     private let downloadWhisper: (URL, String, @escaping (Double) -> Void) async throws -> Void
 
     private let downloadFluid: (AsrModelVersion, ProgressHandler?) async throws -> AsrModels
@@ -230,6 +264,7 @@ class SettingsViewModel: ObservableObject {
         self.addSpaceAfterSentence = prefs.addSpaceAfterSentence
         self.autoCopyToClipboard = prefs.autoCopyToClipboard
         self.autoPasteTranscription = prefs.autoPasteTranscription
+        self.dictionaryEntries = CustomDictionary.load()
 
         if let savedPath = prefs.selectedWhisperModelPath ?? prefs.selectedModelPath {
             self.selectedModelURL = URL(fileURLWithPath: savedPath)
@@ -652,6 +687,7 @@ struct Settings {
     var useBeamSearch: Bool
     var beamSize: Int
     var useAsianAutocorrect: Bool
+    var customDictionary: [DictionaryEntry]
     
     var isAsianLanguage: Bool {
         Settings.asianLanguages.contains(selectedLanguage)
@@ -668,7 +704,8 @@ struct Settings {
         self.showTimestamps = prefs.showTimestamps
         self.temperature = prefs.temperature
         self.noSpeechThreshold = prefs.noSpeechThreshold
-        self.initialPrompt = prefs.initialPrompt
+        self.customDictionary = CustomDictionary.load()
+        self.initialPrompt = CustomDictionary.prompt(userPrompt: prefs.initialPrompt, entries: customDictionary)
         self.useBeamSearch = prefs.useBeamSearch
         self.beamSize = prefs.beamSize
         self.useAsianAutocorrect = prefs.useAsianAutocorrect
@@ -1000,6 +1037,64 @@ struct SettingsView: View {
                                 .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
                                 .labelsHidden()
                         }
+                    }
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(.controlBackgroundColor).opacity(0.3))
+                .cornerRadius(12)
+
+                // Custom Dictionary
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        Text("Custom Dictionary")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Button {
+                            viewModel.dictionaryEntries.append(DictionaryEntry(word: ""))
+                        } label: {
+                            Label("Add Word", systemImage: "plus")
+                                .font(.subheadline)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        if viewModel.dictionaryEntries.isEmpty {
+                            Text("Add names, brands or terms that get transcribed wrong.")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        } else {
+                            HStack(spacing: 8) {
+                                Text("Word")
+                                    .frame(width: 150, alignment: .leading)
+                                Text("Often heard as (comma-separated)")
+                            }
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                            ForEach($viewModel.dictionaryEntries) { $entry in
+                                HStack(spacing: 8) {
+                                    TextField("Semeniuk", text: $entry.word)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 150)
+                                    TextField("Semenyuk, Simeon UK", text: $entry.misheardAs)
+                                        .textFieldStyle(.roundedBorder)
+                                    Button {
+                                        viewModel.dictionaryEntries.removeAll { $0.id == entry.id }
+                                    } label: {
+                                        Image(systemName: "minus.circle")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help("Remove word")
+                                }
+                            }
+                        }
+
+                        Text("Words are given to Whisper as spelling hints. Anything listed under \u{201C}Often heard as\u{201D} is replaced with the word after every transcription, with both Whisper and Parakeet.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 }
                 .padding()
@@ -1395,6 +1490,44 @@ struct SettingsView: View {
                     Text("Application")
                         .font(.headline)
                         .foregroundColor(.primary)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Open at login")
+                                    .font(.subheadline)
+                                Text("Start OpenSuperWhisper automatically when you log in to your Mac")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { viewModel.launchAtLogin },
+                                set: { viewModel.setLaunchAtLogin($0) }
+                            ))
+                            .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
+                            .labelsHidden()
+                        }
+
+                        if viewModel.launchAtLoginStatus == .requiresApproval {
+                            HStack {
+                                Text("Allow OpenSuperWhisper in System Settings \u{2192} General \u{2192} Login Items to finish turning this on.")
+                                    .font(.caption)
+                                    .foregroundColor(.orange)
+                                Button("Open Login Items") {
+                                    SMAppService.openSystemSettingsLoginItems()
+                                }
+                                .font(.caption)
+                            }
+                        }
+
+                        if let error = viewModel.launchAtLoginError {
+                            Text("Couldn't change the login item: \(error)")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+                    }
+                    .onAppear { viewModel.refreshLaunchAtLogin() }
 
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
