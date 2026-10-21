@@ -23,8 +23,6 @@ struct OptionalUserDefault<T> {
 
 final class AppPreferences {
     static let shared = AppPreferences()
-    static let customDictionaryKey = "customDictionary"
-
     private init() {
         migrateOldPreferences()
     }

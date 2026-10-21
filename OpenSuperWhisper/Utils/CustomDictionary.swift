@@ -19,8 +19,10 @@ struct DictionaryEntry: Codable, Identifiable, Equatable, Sendable {
 }
 
 enum CustomDictionary {
+    static let defaultsKey = "customDictionary"
+
     static func load(from defaults: UserDefaults = .standard) -> [DictionaryEntry] {
-        guard let data = defaults.data(forKey: AppPreferences.customDictionaryKey),
+        guard let data = defaults.data(forKey: defaultsKey),
               let entries = try? JSONDecoder().decode([DictionaryEntry].self, from: data)
         else { return [] }
         return entries
@@ -28,7 +30,7 @@ enum CustomDictionary {
 
     static func save(_ entries: [DictionaryEntry], to defaults: UserDefaults = .standard) {
         guard let data = try? JSONEncoder().encode(entries) else { return }
-        defaults.set(data, forKey: AppPreferences.customDictionaryKey)
+        defaults.set(data, forKey: defaultsKey)
     }
 
     /// Whisper is biased toward spellings that appear in its prompt, so the
